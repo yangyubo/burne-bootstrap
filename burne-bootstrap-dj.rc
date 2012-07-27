@@ -1,0 +1,263 @@
+# ############################################################## #
+# put this script to the root dir of your Django project
+#
+# Then execute "source bootstrap.rc -h"
+#
+# Tested with Django 1.4 and Ubuntu 12.04 LTS
+# ############################################################## #
+
+# Absolute path to this script. /home/user/bin/foo.sh
+BURNE_SCRIPT=$(readlink -f "${PWD}/${BASH_SOURCE}")
+
+# Absolute path this script is in. /home/user/bin
+BURNE_TOP_PATH=`dirname "$BURNE_SCRIPT"`
+BURNE_PARENT_PATH=`dirname "$BURNE_TOP_PATH"`
+BURNE_PROJECT_NAME=`basename "$BURNE_TOP_PATH"`
+BURNE_DJANGO_ADMIN="$BURNE_TOP_PATH/ENV/bin/django-admin.py"
+BURNE_SITE_PATH="$BURNE_TOP_PATH/$BURNE_PROJECT_NAME"
+
+# settings.py path
+BURNE_ORIG_SETTINGS="$BURNE_SITE_PATH/settings.py"
+export BURNE_SETTINGS_PATH="$BURNE_SITE_PATH/settings"
+
+export BURNE_USE_PROXY="--no-index -f file://$BURNE_TOP_PATH/KGS/"
+export BRUNE_PYTHON="$BURNE_TOP_PATH/ENV/bin/python"
+export mg="$BURNE_TOP_PATH/ENV/bin/python $BURNE_TOP_PATH/manage.py"
+
+function burne_deactive {
+    _deactive
+    
+    unset BURNE_SCRIPT
+    
+    unset BURNE_TOP_PATH
+    unset BURNE_PARENT_PATH
+    unset BURNE_PROJECT_NAME
+    unset BURNE_DJANGO_ADMIN
+    unset BURNE_SITE_PATH
+    
+    unset BURNE_ORIG_SETTINGS
+    unset BURNE_SETTINGS_PATH
+    
+    unset BURNE_USE_PROXY
+    unset BRUNE_PYTHON
+    unset mg
+    
+    unset -f burne_deactive
+}
+
+function _update_prerequisite_task {
+    sudo apt-get install python-all python-setuptools python-dev python-pip python-virtualenv
+}
+
+function _skeleton_task {
+
+    if [ ! -e "$BURNE_TOP_PATH/manage.py" ] ; then
+        $BURNE_DJANGO_ADMIN startproject $BURNE_PROJECT_NAME $BURNE_TOP_PATH
+    fi
+
+    if [ ! -e "$BURNE_ORIG_SETTINGS" ] ; then
+        echo ERROR: "$BURNE_ORIG_SETTINGS" doesn\'t exist !
+        return
+    fi
+    
+    if [ -e "$BURNE_SETTINGS_PATH" ] ; then
+        echo ERROR: "$BURNE_SETTINGS_PATH" directory already exist !
+        return
+    fi
+    
+    mkdir -p "$BURNE_SETTINGS_PATH"
+    cp "$BURNE_ORIG_SETTINGS" "$BURNE_SETTINGS_PATH/base.py"
+    
+    $BRUNE_PYTHON <<"EOF"
+import os
+
+settings_base_path = os.environ['BURNE_SETTINGS_PATH'] + "/base.py"
+
+settings_base = open(settings_base_path, "r")
+tmp = settings_base.read()
+settings_base.close()
+
+tmp = tmp.replace("TIME_ZONE = 'America/Chicago'", "TIME_ZONE = 'Asia/Hong_Kong'")
+tmp = tmp.replace("LANGUAGE_CODE = 'en-us'", "LANGUAGE_CODE = 'zh-cn'")
+
+tmp = tmp.replace("MEDIA_ROOT = ''", "MEDIA_ROOT = os.path.join(PROJECT_ROOT, 'media')")
+tmp = tmp.replace("MEDIA_URL = ''", "MEDIA_URL = '/media/'")
+
+tmp = tmp.replace("STATIC_ROOT = ''", "STATIC_ROOT = os.path.join(PROJECT_ROOT, 'collectedstatic')")
+tmp = tmp.replace("STATIC_URL = ''", "STATIC_URL = '/static/'")
+
+tmp = tmp.replace("STATICFILES_DIRS = (", "STATICFILES_DIRS = (\n    os.path.join(PROJECT_ROOT, 'static/'),")
+
+tmp = tmp.replace("        'ENGINE': 'django.db.backends.', ", "        'ENGINE': 'django.db.backends.sqlite3', ")
+tmp = tmp.replace("        'NAME': '', ", "        'NAME': os.path.join(PROJECT_ROOT, 'dev.sqlite'), ")
+
+tmp = tmp.replace("TEMPLATE_DIRS = (", "TEMPLATE_DIRS = (\n    os.path.join(PROJECT_ROOT, 'templates'),")
+
+tmp = """# -*- coding: utf-8 -*-
+
+import os, sys
+HERE = os.path.dirname(os.path.abspath(__file__))
+SITE_ROOT = os.path.normpath(os.path.join(HERE, "../"))
+PROJECT_ROOT = os.path.join(SITE_ROOT, "../")
+
+sys.path.insert(0, SITE_ROOT)
+sys.path.insert(0, PROJECT_ROOT)
+
+TEMPLATE_CONTEXT_PROCESSORS = (
+    "django.contrib.auth.context_processors.auth",
+    "django.core.context_processors.debug",
+    "django.core.context_processors.i18n",
+    "django.core.context_processors.media",
+    "django.core.context_processors.static",
+    'django.core.context_processors.tz',
+    "django.contrib.messages.context_processors.messages",
+    "django.core.context_processors.request",
+)\n
+""" + tmp
+
+settings_base = open(settings_base_path, "w+b")
+settings_base.write(tmp)
+settings_base.close()
+EOF
+
+    cat >$BURNE_SETTINGS_PATH/__init__.py <<EOF
+# -*- coding: utf-8 -*-
+
+from .base import *
+
+try:
+    from .local import *
+except ImportError, exc:
+    exc.args = tuple(['%s (did you rename "settings/local.py.sample" to "settings/local.py" ?)' % exc.args[0]])
+    raise exc
+
+if DEBUG:
+    from .development import *
+else:
+    from .product import *
+EOF
+
+    cat >$BURNE_SETTINGS_PATH/development.py <<EOF
+# -*- coding: utf-8 -*-
+# settings for development environment
+# set 'DEBUG = True' at local.py will automatically import this file
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+EOF
+
+    cat >$BURNE_SETTINGS_PATH/production.py <<EOF
+# -*- coding: utf-8 -*-
+# settings for production environment
+# set 'DEBUG = False' at local.py will automatically import this file
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+
+EOF
+
+    cat >$BURNE_SETTINGS_PATH/local.py.sample <<EOF
+# -*- coding: utf-8 -*-
+# Extra local settings here
+# Rename this file to local.py before using: mv local.py.sample local.py
+
+import os
+from . import base
+
+INSTALLED_APPS = base.INSTALLED_APPS + []
+
+## Debug
+DEBUG = True
+TEMPLATE_DEBUG = True
+
+EOF
+}
+
+function _deactive {
+    if [ -n "${VIRTUAL_ENV+x}" ]; then  ## VIRTUAL_ENV environment has set, must execute deactivate
+        deactivate
+    fi
+}
+
+function _virtualenv_task {
+    _deactive
+    virtualenv --unzip-setuptools --system-site-packages --distribute "$BURNE_TOP_PATH/ENV"
+    source "$BURNE_TOP_PATH/ENV/bin/activate"
+}
+
+function _pip_task {
+    if [ ! -e "$BURNE_TOP_PATH/requirements.pip" ] ; then
+        touch "$BURNE_TOP_PATH/requirements.pip"
+    fi
+    
+    _deactive
+    $BURNE_TOP_PATH/ENV/bin/pip install $BURNE_USE_PROXY -r "$BURNE_TOP_PATH/requirements.pip"
+    source "$BURNE_TOP_PATH/ENV/bin/activate"
+}
+
+function _init_task {
+    _virtualenv_task
+    _pip_task
+}
+
+##############  parse options  ############################
+
+if [ -z "${VIRTUAL_ENV+x}" ] && [ -e $BURNE_TOP_PATH/ENV/bin/activate ] && [ $# -eq 0 ]; then  ## activate already exist, no argument passed in
+    echo Found "ENV/bin/activate" script, activating current ENV ...
+    source "$BURNE_TOP_PATH/ENV/bin/activate" && echo DONE && return ## activate current ENV, and then exit
+fi
+
+if [ -z "${VIRTUAL_ENV+x}" ] && [ $# -eq 0 ]; then ## no argument passed in, and VIRTUAL_ENV environment not set
+    _init_task
+    source "$BURNE_TOP_PATH/ENV/bin/activate"
+else
+    while getopts ":nuivpsrh" optname
+      do
+        case "$optname" in
+          "n")
+            export BURNE_USE_PROXY="-i http://pypi.python.org/simple/"
+            ;;
+          "u")
+            _update_prerequisite_task
+            ;;
+          "i")
+            _init_task
+            ;;
+          "v")
+            _virtualenv_task
+            ;;
+          "p")
+            _pip_task
+            ;;
+          "s")
+            _skeleton_task
+            ;;
+          "r")
+            echo "clean .pyc / .orig / ~ / .swp files"
+            find $BURNE_TOP_PATH -type d \( -name ENV -o -name .hg -o -name .git -o -name .svn \) -prune -o -type f \( -name \*.pyc -o -name \*.orig -o -name \~* -o -name \*.swp \) -print -exec rm -f {} \;
+            ;;
+          "?")
+            echo "Unknown option -$OPTARG"
+            ;;
+          "h")
+            echo "usage: source bootstrap.rc [-u | -i | -v | -p | -h]"
+            echo '-n        use http://pypi.python.org/ instead of KGS dir when (re)install required packages'
+            echo '-u        install/update prerequisite system packages (use "apt-get")'
+            echo "-i        initial environment, this will execute both '-v' and '-p' options"
+            echo "-v        install & create & activate virtualenv"
+            echo "-p        (re)install required packages through pip"
+            echo "-s        create project skeleton based on django project specification"
+            echo "-r        clean files that may cause severe disruption (*.pyc etc)"
+            echo "-h        print this help"
+            ;;
+          ":")
+            echo "No argument value for option -$OPTARG"
+            ;;
+          *)
+            # Should not occur
+            echo "Unknown error while processing options"
+            ;;
+        esac
+      done
+
+    OPTIND=0
+fi

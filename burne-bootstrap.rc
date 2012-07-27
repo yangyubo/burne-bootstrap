@@ -1,0 +1,123 @@
+# ############################################################## #
+# put this script to the root of your Python project root dir
+#
+# Then execute "source bootstrap.rc -h"
+#
+# Tested with Python 2.7 and Ubuntu 12.04 LTS
+# ############################################################## #
+
+# Absolute path of this script, ie. /home/user/bin/foo.sh
+BURNE_SCRIPT=$(readlink -f "${PWD}/${BASH_SOURCE}")
+
+# Absolute directory of this script is in. /home/user/bin
+BURNE_TOP_PATH=`dirname "$BURNE_SCRIPT"`
+
+BURNE_PARENT_PATH=`dirname "$BURNE_TOP_PATH"`
+
+export BURNE_USE_PROXY="--no-index -f file://$BURNE_TOP_PATH/KGS/"
+export BRUNE_PYTHON="$BURNE_TOP_PATH/ENV/bin/python"
+
+function burne_deactive {
+    _deactive
+
+    unset BURNE_SCRIPT
+    
+    unset BURNE_TOP_PATH
+    unset BURNE_PARENT_PATH
+    
+    unset BURNE_USE_PROXY
+    unset BRUNE_PYTHON
+    
+    unset -f burne_deactive
+}
+
+function _update_prerequisite_task {
+    sudo apt-get install python-all python-setuptools python-dev python-pip python-virtualenv
+}
+
+function _deactive {
+    if [ -n "${VIRTUAL_ENV+x}" ]; then  ## VIRTUAL_ENV environment has set, must execute deactivate
+        deactivate
+    fi
+}
+
+function _virtualenv_task {
+    _deactive
+    virtualenv --unzip-setuptools --system-site-packages --distribute "$BURNE_TOP_PATH/ENV"
+    source "$BURNE_TOP_PATH/ENV/bin/activate"
+}
+
+function _pip_task {
+    if [ ! -e "$BURNE_TOP_PATH/requirements.pip" ] ; then
+        touch "$BURNE_TOP_PATH/requirements.pip"
+    fi
+    
+    _deactive
+    $BURNE_TOP_PATH/ENV/bin/pip install $BURNE_USE_PROXY -r "$BURNE_TOP_PATH/requirements.pip"
+    source "$BURNE_TOP_PATH/ENV/bin/activate"
+}
+
+function _init_task {
+    _virtualenv_task
+    _pip_task
+}
+
+##############  parse options  ############################
+
+if [ -z "${VIRTUAL_ENV+x}" ] && [ -e $BURNE_TOP_PATH/ENV/bin/activate ] && [ $# -eq 0 ]; then  ## activate already exist, no argument passed in
+    echo Found "ENV/bin/activate" script, activating current ENV ...
+    source "$BURNE_TOP_PATH/ENV/bin/activate" && echo DONE && return ## activate current ENV, and then exit
+fi
+
+if [ -z "${VIRTUAL_ENV+x}" ] && [ $# -eq 0 ]; then ## no argument passed in, and VIRTUAL_ENV environment not set
+    _init_task
+    source "$BURNE_TOP_PATH/ENV/bin/activate"
+else
+    while getopts ":nuivprh" optname
+      do
+        case "$optname" in
+          "n")
+            export BURNE_USE_PROXY="-i http://pypi.python.org/simple/"
+            ;;
+          "u")
+            _update_prerequisite_task
+            ;;
+          "i")
+            _init_task
+            ;;
+          "v")
+            _virtualenv_task
+            ;;
+          "p")
+            _pip_task
+            ;;
+          "r")
+            echo "clean .pyc / .orig / ~ / .swp files"
+            find $BURNE_TOP_PATH -type d \( -name ENV -o -name .hg -o -name .git -o -name .svn \) -prune -o -type f \( -name \*.pyc -o -name \*.orig -o -name \~* -o -name \*.swp \) -print -exec rm -f {} \;
+            ;;
+          "?")
+            echo "Unknown option -$OPTARG"
+            ;;
+          "h")
+            echo "usage: source bootstrap.rc [-u | -i | -v | -p | -h]"
+            echo '-n        use http://pypi.python.org/ instead of KGS dir when (re)install required packages'
+            echo '-u        install/update prerequisite system packages
+                (use "apt-get")'
+            echo "-i        initial environment, this will execute both '-v' and '-p' options"
+            echo "-v        install & create & activate virtualenv"
+            echo "-p        (re)install required packages through pip"
+            echo "-r        clean files that may cause severe disruption (*.pyc etc)"
+            echo "-h        print this help"
+            ;;
+          ":")
+            echo "No argument value for option -$OPTARG"
+            ;;
+          *)
+            # Should not occur
+            echo "Unknown error while processing options"
+            ;;
+        esac
+      done
+
+    OPTIND=0
+fi
